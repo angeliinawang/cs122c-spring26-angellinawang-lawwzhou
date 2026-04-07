@@ -15,13 +15,13 @@ include(ExternalProject)
 ExternalProject_Add(googletest
         GIT_REPOSITORY    https://github.com/google/googletest.git
         GIT_TAG           release-1.11.0
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}
+        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR} -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         )
 
 ExternalProject_Add(googlelog
-        GIT_REPOSITORY https://github.com/google/glog.git
+        GIT_REPOSITORY https://github.com/google/glog.gi
         GIT_TAG           v0.5.0
-        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR} -DWITH_GFLAGS=OFF
+        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR} -DWITH_GFLAGS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
         )
 
 include_directories("${CMAKE_BINARY_DIR}/include")

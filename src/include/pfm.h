@@ -4,6 +4,7 @@
 #define PAGE_SIZE 4096
 
 #include <string>
+#include <cstdio>
 
 namespace PeterDB {
 
@@ -45,6 +46,11 @@ namespace PeterDB {
         unsigned getNumberOfPages();                                        // Get the number of pages in the file
         RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount,
                                 unsigned &appendPageCount);                 // Put current counter values into variables
+
+    private:
+        FILE *file = nullptr;                                               // Underlying file pointer
+
+        friend class PagedFileManager;  // So PFM can set/clear the file pointer
     };
 
 } // namespace PeterDB
