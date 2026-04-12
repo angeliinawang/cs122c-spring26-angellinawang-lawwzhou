@@ -14,7 +14,7 @@ namespace PeterDB {
 
     RecordBasedFileManager &RecordBasedFileManager::operator=(const RecordBasedFileManager &) = default;
 
-    void dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char* output, unsigned short &outputSize) {
+    void RecordBasedFileManager::dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char* output, unsigned short &outputSize) {
         // calculate n for n bytes for null information
         int fields = recordDescriptor.size();
         int nullBytes = ceil(fields / 8.0);
@@ -51,8 +51,8 @@ namespace PeterDB {
         outputSize = (unsigned short) (dataptr - output);
     }
 
-    unsigned short checkFreeSpace(void *page) {
-        pageptr = (char*) page;
+    unsigned short RecordBasedFileManager::checkFreeSpace(void *page) {
+        char* pageptr = (char*) page;
         unsigned short freeSpaceOffset;
         unsigned short numSlots;
         memcpy(&freeSpaceOffset, pageptr + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
@@ -80,18 +80,21 @@ namespace PeterDB {
     RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
                                             const void *data, RID &rid) {
         // convert data to byte array and store output to be written to page
-        char *output;
+        char output[PAGE_SIZE];
         unsigned short outputSize;
-        dataToByteArray(recordDescriptor, data, output, &outputSize);
-        PageNum currPage = -1;
+        dataToByteArray(recordDescriptor, data, output, outputSize);
+        PageNum currPage = 0;
+        char page[PAGE_SIZE];
+        unsigned short freeSpaceOffset;
+        unsigned short numSlots;
+        bool found = false;
 
         if (fileHandle.getNumberOfPages() == 0) {
             // create first page
-            char *page[PAGE_SIZE];
             memset(page, 0, PAGE_SIZE);
 
-            unsigned short freeSpaceOffset = 0;
-            unsigned short numSlots = 0;
+            freeSpaceOffset = 0;
+            numSlots = 0;
             memcpy(page + PAGE_SIZE - 2, &numSlots, PAGE_METADATA - 2); // page meta data is for both free space offset and num slots
             memcpy(page + PAGE_SIZE - 4, &freeSpaceOffset, PAGE_METADATA - 2);
             RC code = fileHandle.appendPage(page);
@@ -99,10 +102,10 @@ namespace PeterDB {
                 return code;
             }
             currPage = 0;
+            found = true;
         } 
         else {
             // otherwise find a page with free room
-            char *page[PAGE_SIZE];
             for (int i = 0; i < fileHandle.getNumberOfPages(); i++) {
                 RC code = fileHandle.readPage(i, page);
                 if (code != 0) {
@@ -110,11 +113,45 @@ namespace PeterDB {
                 }
                 if (checkFreeSpace(page) >= outputSize) {
                     currPage = i;
+                    found = true;
+                    memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
+                    memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
                     break;
                 }
             }
+            if (!found) {
+                memset(page, 0, PAGE_SIZE);
+                freeSpaceOffset = 0;
+                numSlots = 0;
+                memcpy(page + PAGE_SIZE - PAGE_METADATA + 2, &numSlots, PAGE_METADATA - 2); // page meta data is for both free space offset and num slots
+                memcpy(page + PAGE_SIZE - PAGE_METADATA, &freeSpaceOffset, PAGE_METADATA - 2);
+                RC code = fileHandle.appendPage(page);
+                if (code != 0) {
+                    return code;
+                }
+                currPage = fileHandle.getNumberOfPages() - 1;
+            }
         }
-        return -1;
+        // we have offset and num slots, just write the data and then make the slots
+        memcpy(page + freeSpaceOffset, output, outputSize);
+
+        // start at the very left of the metadata and then jump left numSlots * SLOT_SIZE
+        memcpy(page + PAGE_SIZE - PAGE_METADATA - (numSlots+1) * SLOT_SIZE, &freeSpaceOffset, SLOT_SIZE - 2);
+        memcpy(page + PAGE_SIZE - PAGE_METADATA - (numSlots+1) * SLOT_SIZE + 2, &outputSize, SLOT_SIZE - 2);
+
+        //update da metadata
+        freeSpaceOffset += outputSize;
+        numSlots += 1;
+        memcpy(page + PAGE_SIZE - PAGE_METADATA, &freeSpaceOffset, PAGE_METADATA - 2);
+        memcpy(page + PAGE_SIZE - PAGE_METADATA + 2, &numSlots, PAGE_METADATA - 2);
+
+        RC code = fileHandle.writePage(currPage, page);
+        if (code != 0) {
+            return code;
+        }
+        rid.pageNum = currPage;
+        rid.slotNum = numSlots - 1;
+        return 0;
     }
 
     RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
