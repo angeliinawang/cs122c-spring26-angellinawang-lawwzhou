@@ -49,7 +49,16 @@ namespace PeterDB {
             dirptr += RECORD_DIR_SIZE;
         }
         outputSize = (unsigned short) (dataptr - output);
+    }
 
+    unsigned short checkFreeSpace(void *page) {
+        pageptr = (char*) page;
+        unsigned short freeSpaceOffset;
+        unsigned short numSlots;
+        memcpy(&freeSpaceOffset, pageptr + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
+        memcpy(&numSlots, pageptr + PAGE_SIZE - 2, PAGE_METADATA - 2);
+
+        return PAGE_SIZE - PAGE_METADATA - numSlots * SLOT_SIZE - freeSpaceOffset;
     }
 
     RC RecordBasedFileManager::createFile(const std::string &fileName) {
@@ -74,17 +83,37 @@ namespace PeterDB {
         char *output;
         unsigned short outputSize;
         dataToByteArray(recordDescriptor, data, output, &outputSize);
+        PageNum currPage = -1;
 
-        /*if (fileHandle.getNumberOfPages() == 0) {
+        if (fileHandle.getNumberOfPages() == 0) {
             // create first page
             char *page[PAGE_SIZE];
             memset(page, 0, PAGE_SIZE);
 
             unsigned short freeSpaceOffset = 0;
-            unsigned short
-            if fileHandle.appendPage(output);
-            
-        }*/
+            unsigned short numSlots = 0;
+            memcpy(page + PAGE_SIZE - 2, &numSlots, PAGE_METADATA - 2); // page meta data is for both free space offset and num slots
+            memcpy(page + PAGE_SIZE - 4, &freeSpaceOffset, PAGE_METADATA - 2);
+            RC code = fileHandle.appendPage(page);
+            if (code != 0) {
+                return code;
+            }
+            currPage = 0;
+        } 
+        else {
+            // otherwise find a page with free room
+            char *page[PAGE_SIZE];
+            for (int i = 0; i < fileHandle.getNumberOfPages(); i++) {
+                RC code = fileHandle.readPage(i, page);
+                if (code != 0) {
+                    return code;
+                }
+                if (checkFreeSpace(page) >= outputSize) {
+                    currPage = i;
+                    break;
+                }
+            }
+        }
         return -1;
     }
 

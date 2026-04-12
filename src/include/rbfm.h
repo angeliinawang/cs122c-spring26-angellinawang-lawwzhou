@@ -88,6 +88,8 @@ namespace PeterDB {
     public:
         
         void dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char *output, unsigned short &outputSize);
+
+        unsigned short checkFreeSpace(void *page);
         
         static RecordBasedFileManager &instance();                          // Access to the singleton instance
 
