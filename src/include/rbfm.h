@@ -4,7 +4,25 @@
 #include <vector>
 
 #include "pfm.h"
+/*
+Page Layout:
+Records .... -> Free Space <- Slot Table <- Metadata
+Slot table will dynamically increase left as we add more records
+Records will dynamically increase right as we go right
+Our slots are in format (unsigned short offset (2 bytes), unsigned short length (2 bytes)) -> 4 bytes total
+We can use shorts because the max that these numbers can be is 4096 bytes
+At the end, we also have page metadata, basically 2 more unsigned shorts one to represent the free space offset
+and then one to represent the number of slots
+that way to quickly see if we have enough space we compute the offset - number of slots * slot_size - page_metadata
+*/
 
+#define SLOT_SIZE 4 //
+
+#define PAGE_METADATA 4 //
+
+#define RECORD_DIR_SIZE sizeof(unsigned short) //
+
+#define LENGTH_PREFIX 4 //
 namespace PeterDB {
     // Record ID
     typedef struct {
@@ -68,6 +86,9 @@ namespace PeterDB {
 
     class RecordBasedFileManager {
     public:
+        
+        void dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char *output, unsigned short &outputSize);
+        
         static RecordBasedFileManager &instance();                          // Access to the singleton instance
 
         RC createFile(const std::string &fileName);                         // Create a new record-based file
