@@ -12,23 +12,28 @@
 
 ### 2. Internal Record Format
 - Show your record format design.
+
 [dir 0 - dir 1 - dir 2 | field 1 - field 2 - field 3]
 The beginning of the record is the directory which stores offsets to the end of each field of the actual data in the record. Each directory entry is 2 bytes since they are unsigned shorts and then the field sizes depend on the type of var and actual data size.
 
 
 - Describe how you store a null field.
+
 Previously, to store null fields, we made the offset of the current field to the be equal to the previous if it the current was null. However, this failed when it came to dealing with a VARCHAR that had an empty string since this technically was valid and not null. It failed because it had equal offsets and took up zero bytes, so instead we swtiched to using 0xFFFF for our offset in the directory if a field was null. This works because it is an invalid offset since it's equal to 65535 and page size is 4096 bytes. We definitely want to see if there is a better way than storing an invalid offset, but this approach currently works.
 
 
 - Describe how you store a VarChar field.
+
 For the varchar field we use the directory offset in order to determine the size of the text. There is no metadata in the actual field data, it's just the raw characters and you just use the offset of the current and previous to calculate the length of the characters.
 
 - Describe how your record design satisfies O(1) field access.
+
 To access a record i field in O(1) time. With the directory of offsets to the end of every field, you can make a jump from the directory to the desired field in O(1). ex: if you want the ith field, you just go to the ith directory with record + i * 2 because each directory is unsigned short. You can get to the directory of a record using the slot table, the slot table has offsets to the start of the directory of every record. So when you pass in an RID to read, you jump to that slot number in O(1), then you jump to the record directory in O(1), then you use that to jump to the field in O(1).
 
 
 ### 3. Page Format
 - Show your page format design.
+
 Page Layout:
 Records .... -> Free Space <- Slot Table <- Metadata
 Slot table will dynamically increase left as we add more records
@@ -40,6 +45,7 @@ and then one to represent the number of slots in the current page.
 that way to quickly see if we have enough space we compute the offset - number of slots * slot_size - page_metadata
 
 - Explain your slot directory design if applicable.
+
 Slot table will dynamically increase left as we add more records
 Our slots are in format (unsigned short offset (2 bytes), unsigned short length (2 bytes)) -> 4 bytes total
 Length will tell us how many bytes the corresponding record takes up.
@@ -49,6 +55,7 @@ We can use shorts because the max that these numbers can be is 4096 bytes
 
 ### 4. Page Management
 - Show your algorithm of finding next available-space page when inserting a record.
+
 First we convert our record to a byte array to understand how much space is required for this record. 
 We start off by checking the last page first, this makes sense logically because the last page is msot recently used and so it is more likely to have free space there.
 For all pages, we use a function to calculate the amount of free space on the page and then we compare that to how much space is required for this record. If the last page has no space, we start at the first page, and then go through each page until we reach the second to last. If none of the pages have space, we just create and append a new page. Otherwise, if any of these pages have space then we designate that as the page we'll be writing to.
