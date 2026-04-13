@@ -1,6 +1,8 @@
 #include "src/include/rbfm.h"
 #include <string>
 #include <ostream>
+#include <cstring>  
+#include <cmath>
 
 
 namespace PeterDB {
@@ -46,9 +48,13 @@ namespace PeterDB {
                     fieldptr += recordDescriptor[i].length;
                     dataptr += recordDescriptor[i].length;
                 }
+                unsigned short endOffset = dataptr - output;
+                memcpy(dirptr, &endOffset, RECORD_DIR_SIZE);
             }
-            unsigned short endOffset = dataptr - output;
-            memcpy(dirptr, &endOffset, RECORD_DIR_SIZE);
+            else {
+                unsigned short invalid = 0xFFFF;
+                memcpy(dirptr, &invalid, RECORD_DIR_SIZE);
+            }
             dirptr += RECORD_DIR_SIZE;
         }
         outputSize = (unsigned short) (dataptr - output);
@@ -79,18 +85,12 @@ namespace PeterDB {
         }*/
         char *dirptr = (char*) page + dirStart;
         memset(bitptr, 0, nullBytes);
+        unsigned short prevOffset = fields * RECORD_DIR_SIZE;
         for (int i = 0; i < recordDescriptor.size(); i++) {
             unsigned short currOffset;
-            unsigned short prevOffset;
             memcpy(&currOffset, dirptr, RECORD_DIR_SIZE); // get current offset to data
-            if (i == 0) {
-                prevOffset = fields * RECORD_DIR_SIZE; // on first i, prev is just going to be start of data
-            } 
-            else {
-                memcpy(&prevOffset, dirptr - RECORD_DIR_SIZE, RECORD_DIR_SIZE);
-            }
             // when offsts are the same that means the current is null so just flip otherwise read the data
-            if (prevOffset == currOffset) {
+            if (currOffset == 0xFFFF) {
                 bitptr[i / 8] |= (0x80 >> (i % 8));
             }
             else {
@@ -106,6 +106,7 @@ namespace PeterDB {
                     memcpy(fieldptr, recordptr + prevOffset, recordDescriptor[i].length);
                     fieldptr += recordDescriptor[i].length;
                 }
+                prevOffset = currOffset;
             }
             dirptr += RECORD_DIR_SIZE;
         }
@@ -154,8 +155,11 @@ namespace PeterDB {
         unsigned short freeSpaceOffset = 0;
         unsigned short numSlots = 0;
         bool found = false;
+        unsigned int numPages = fileHandle.getNumberOfPages();
 
-        if (fileHandle.getNumberOfPages() == 0) {
+        // TO-DO: add check last page otpimization
+
+        if (numPages == 0) {
             // create first page
             memset(page, 0, PAGE_SIZE);
 
@@ -172,17 +176,30 @@ namespace PeterDB {
         } 
         else {
             // otherwise find a page with free room
-            for (int i = 0; i < fileHandle.getNumberOfPages(); i++) {
-                RC code = fileHandle.readPage(i, page);
+            // check last page bc most recently used
+            RC code = fileHandle.readPage(numPages - 1, page);
                 if (code != 0) {
                     return code;
                 }
                 if (checkFreeSpace(page) >= outputSize) {
-                    currPage = i;
+                    currPage = numPages - 1;
                     found = true;
                     memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
                     memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
-                    break;
+            }
+            if (!found) {
+                for (int i = 0; i < numPages - 1; i++) {
+                    RC code = fileHandle.readPage(i, page);
+                    if (code != 0) {
+                        return code;
+                    }
+                    if (checkFreeSpace(page) >= outputSize) {
+                        currPage = i;
+                        found = true;
+                        memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
+                        memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
+                        break;
+                    }
                 }
             }
             // cant find a page makea. new one
@@ -196,7 +213,7 @@ namespace PeterDB {
                 if (code != 0) {
                     return code;
                 }
-                currPage = fileHandle.getNumberOfPages() - 1;
+                currPage = numPages;
             }
         }
         // we have offset and num slots, just write the data and then make the slots
@@ -275,12 +292,9 @@ namespace PeterDB {
                     unsigned charLen;
                     memcpy(&charLen, fieldptr, LENGTH_PREFIX);
                     fieldptr += LENGTH_PREFIX;
-                    char buffer[charLen + 1];
                     for (int j = 0; j < charLen; j++) {
-                        buffer[j] = fieldptr[j];
+                        out << fieldptr[j];
                     }
-                    buffer[charLen] = '\0';
-                    out << buffer;
                     fieldptr += charLen;
                 }
                 if (i < recordDescriptor.size() - 1) {
