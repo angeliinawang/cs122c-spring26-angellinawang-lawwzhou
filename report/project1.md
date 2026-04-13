@@ -3,7 +3,7 @@
 
 ### 1. Basic information
  - Team #: 7
- - Github Repo Link:
+ - Github Repo Link: https://github.com/angeliinawang/cs122c-spring26-angeliinawang-lawwzhou
  - Student 1 UCI NetID: angeliw9
  - Student 1 Name: Angelina Wang
  - Student 2 UCI NetID (if applicable): zhoulh
