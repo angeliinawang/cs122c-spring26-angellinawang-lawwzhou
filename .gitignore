@@ -128,3 +128,21 @@ fabric.properties
 
 *.patch
 patch/
+
+# build files
+build/
+cmake-build-*/
+
+# binaries
+*.out
+*.exe
+
+# valgrind
+vgcore.*
+valgrind.log
+callgrind.out.*
+
+# misc
+*.o
+*.a
+*.so

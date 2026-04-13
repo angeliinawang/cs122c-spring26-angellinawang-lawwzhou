@@ -1,5 +1,0 @@
-if(EXISTS "/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/test/qe/qetest_public[1]_tests.cmake")
-  include("/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/test/qe/qetest_public[1]_tests.cmake")
-else()
-  add_test(qetest_public_NOT_BUILT qetest_public_NOT_BUILT)
-endif()

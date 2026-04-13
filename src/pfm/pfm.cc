@@ -63,6 +63,11 @@ namespace PeterDB {
         fileHandle.writePageCounter = counters[1];
         fileHandle.appendPageCounter = counters[2];
 
+        // initialize cached page count
+        fseek(f, 0, SEEK_END);
+        long fileSize = ftell(f);
+        fileHandle.cachedPageCount = (fileSize / PAGE_SIZE) - 1;
+
         return 0;
     }
 
@@ -130,17 +135,16 @@ namespace PeterDB {
         fseek(file, 0, SEEK_END);
         fwrite(data, PAGE_SIZE, 1, file);
         fflush(file);
+        
         appendPageCounter++;
+        cachedPageCount++;
         return 0;
     }
 
     unsigned FileHandle::getNumberOfPages() {
         if (!file) return 0;
 
-        fseek(file, 0, SEEK_END);
-        long fileSize = ftell(file);
-
-        return (fileSize / PAGE_SIZE) - 1;
+        return cachedPageCount;
     }
 
     RC FileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount) {

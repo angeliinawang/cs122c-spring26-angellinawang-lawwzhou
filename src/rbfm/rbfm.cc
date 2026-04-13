@@ -181,14 +181,15 @@ namespace PeterDB {
                 if (code != 0) {
                     return code;
                 }
-                if (checkFreeSpace(page) >= outputSize) {
+                if (checkFreeSpace(page) >= outputSize + SLOT_SIZE) {
                     currPage = numPages - 1;
                     found = true;
                     memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
                     memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
             }
+
             if (!found) {
-                for (int i = 0; i < numPages - 1; i++) {
+                for (PageNum i = 0; i < numPages - 1; i++) {
                     RC code = fileHandle.readPage(i, page);
                     if (code != 0) {
                         return code;

@@ -48,7 +48,8 @@ namespace PeterDB {
                                 unsigned &appendPageCount);                 // Put current counter values into variables
 
     private:
-        FILE *file = nullptr;                                               // Underlying file pointer
+        FILE *file = nullptr;           // Underlying file pointer
+        unsigned cachedPageCount = 0;
 
         friend class PagedFileManager;  // So PFM can set/clear the file pointer
     };
