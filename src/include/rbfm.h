@@ -89,6 +89,7 @@ namespace PeterDB {
     private:
         void dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char *output, unsigned short &outputSize);
         unsigned short checkFreeSpace(void *page);
+        void byteArrayToData(const std::vector<Attribute> &recordDescriptor, void *page, unsigned short slotNum, void *data);
 
     public:
         
@@ -104,7 +105,7 @@ namespace PeterDB {
 
         //  Format of the data passed into the function is the following:
         //  [n byte-null-indicators for y fields] [actual value for the first field] [actual value for the second field] ...
-        //  1) For y fields, there is n-byte-null-indicators in the beginning of each record.
+        //  1) For y fields, there is n-byte-null-indicators in the beginning of eawch record.
         //     The value n can be calculated as: ceil(y / 8). (e.g., 5 fields => ceil(5 / 8) = 1. 12 fields => ceil(12 / 8) = 2.)
         //     Each bit represents whether each field value is null or not.
         //     If k-th bit from the left is set to 1, k-th field value is null. We do not include anything in the actual data part.
