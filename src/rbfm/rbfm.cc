@@ -48,9 +48,13 @@ namespace PeterDB {
                     fieldptr += recordDescriptor[i].length;
                     dataptr += recordDescriptor[i].length;
                 }
+                unsigned short endOffset = dataptr - output;
+                memcpy(dirptr, &endOffset, RECORD_DIR_SIZE);
             }
-            unsigned short endOffset = dataptr - output;
-            memcpy(dirptr, &endOffset, RECORD_DIR_SIZE);
+            else {
+                unsigned short invalid = 0xFFFF;
+                memcpy(dirptr, &invalid, RECORD_DIR_SIZE);
+            }
             dirptr += RECORD_DIR_SIZE;
         }
         outputSize = (unsigned short) (dataptr - output);
@@ -81,24 +85,19 @@ namespace PeterDB {
         }*/
         char *dirptr = (char*) page + dirStart;
         memset(bitptr, 0, nullBytes);
+        unsigned short prevOffset = fields * RECORD_DIR_SIZE;
         for (int i = 0; i < recordDescriptor.size(); i++) {
             unsigned short currOffset;
-            unsigned short prevOffset;
             memcpy(&currOffset, dirptr, RECORD_DIR_SIZE); // get current offset to data
-            if (i == 0) {
-                prevOffset = fields * RECORD_DIR_SIZE; // on first i, prev is just going to be start of data
-            } 
-            else {
-                memcpy(&prevOffset, dirptr - RECORD_DIR_SIZE, RECORD_DIR_SIZE);
-            }
             // when offsts are the same that means the current is null so just flip otherwise read the data
-            if (prevOffset == currOffset) {
+            if (currOffset == 0xFFFF) {
                 bitptr[i / 8] |= (0x80 >> (i % 8));
             }
             else {
                 if (recordDescriptor[i].type == TypeVarChar) {
                     // for varchars during insert we only inserted the chars and so we can calc prev and end for length
                     unsigned charLen = currOffset - prevOffset;
+                i, currOffset, prevOffset, charLen, dirStart);
                     memcpy(fieldptr, &charLen, LENGTH_PREFIX);
                     fieldptr += LENGTH_PREFIX;
                     memcpy(fieldptr, recordptr + prevOffset, charLen);
@@ -108,6 +107,7 @@ namespace PeterDB {
                     memcpy(fieldptr, recordptr + prevOffset, recordDescriptor[i].length);
                     fieldptr += recordDescriptor[i].length;
                 }
+                prevOffset = currOffset;
             }
             dirptr += RECORD_DIR_SIZE;
         }
@@ -156,6 +156,8 @@ namespace PeterDB {
         unsigned short freeSpaceOffset = 0;
         unsigned short numSlots = 0;
         bool found = false;
+
+        // TO-DO: add check last page otpimization
 
         if (fileHandle.getNumberOfPages() == 0) {
             // create first page
