@@ -97,7 +97,6 @@ namespace PeterDB {
                 if (recordDescriptor[i].type == TypeVarChar) {
                     // for varchars during insert we only inserted the chars and so we can calc prev and end for length
                     unsigned charLen = currOffset - prevOffset;
-                i, currOffset, prevOffset, charLen, dirStart);
                     memcpy(fieldptr, &charLen, LENGTH_PREFIX);
                     fieldptr += LENGTH_PREFIX;
                     memcpy(fieldptr, recordptr + prevOffset, charLen);
