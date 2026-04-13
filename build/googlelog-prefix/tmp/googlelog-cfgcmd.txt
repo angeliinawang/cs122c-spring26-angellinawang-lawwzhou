@@ -1,0 +1,1 @@
+cmd='/usr/bin/cmake;-DCMAKE_INSTALL_PREFIX=/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build;-DWITH_GFLAGS=OFF;-DCMAKE_POLICY_VERSION_MINIMUM=3.5;-GUnix Makefiles;-S;<SOURCE_DIR><SOURCE_SUBDIR>;-B;<BINARY_DIR>'

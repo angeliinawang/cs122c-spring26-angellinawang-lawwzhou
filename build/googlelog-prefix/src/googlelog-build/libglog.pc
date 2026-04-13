@@ -1,0 +1,10 @@
+prefix=/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build
+exec_prefix=/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/bin
+libdir=/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/lib
+includedir=/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/include
+
+Name: libglog
+Description: Google Log (glog) C++ logging framework
+Version: 0.5.0
+Libs: -L${libdir} -lglog
+Cflags: -I${includedir}

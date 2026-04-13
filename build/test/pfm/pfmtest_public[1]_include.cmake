@@ -1,0 +1,5 @@
+if(EXISTS "/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/test/pfm/pfmtest_public[1]_tests.cmake")
+  include("/home/angeliw9/cs122c/cs122c-spring26-angellinawang-lawwzhou/build/test/pfm/pfmtest_public[1]_tests.cmake")
+else()
+  add_test(pfmtest_public_NOT_BUILT pfmtest_public_NOT_BUILT)
+endif()
