@@ -175,17 +175,31 @@ namespace PeterDB {
         } 
         else {
             // otherwise find a page with free room
-            for (int i = 0; i < fileHandle.getNumberOfPages(); i++) {
-                RC code = fileHandle.readPage(i, page);
+            unsigned int numPages = fileHandle.getNumberOfPages();
+            // check last page bc most recently used
+            RC code = fileHandle.readPage(numPages - 1, page);
                 if (code != 0) {
                     return code;
                 }
                 if (checkFreeSpace(page) >= outputSize) {
-                    currPage = i;
+                    currPage = numPages - 1;
                     found = true;
                     memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
                     memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
-                    break;
+            }
+            if (!found) {
+                for (int i = 0; i < numPages - 1; i++) {
+                    RC code = fileHandle.readPage(i, page);
+                    if (code != 0) {
+                        return code;
+                    }
+                    if (checkFreeSpace(page) >= outputSize) {
+                        currPage = i;
+                        found = true;
+                        memcpy(&freeSpaceOffset, page + PAGE_SIZE - PAGE_METADATA, PAGE_METADATA - 2);
+                        memcpy(&numSlots, page + PAGE_SIZE - PAGE_METADATA + 2, PAGE_METADATA - 2);
+                        break;
+                    }
                 }
             }
             // cant find a page makea. new one
