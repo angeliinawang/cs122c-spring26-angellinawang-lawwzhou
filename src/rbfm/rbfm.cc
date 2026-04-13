@@ -155,10 +155,11 @@ namespace PeterDB {
         unsigned short freeSpaceOffset = 0;
         unsigned short numSlots = 0;
         bool found = false;
+        unsigned int numPages = fileHandle.getNumberOfPages();
 
         // TO-DO: add check last page otpimization
 
-        if (fileHandle.getNumberOfPages() == 0) {
+        if (numPages == 0) {
             // create first page
             memset(page, 0, PAGE_SIZE);
 
@@ -175,7 +176,6 @@ namespace PeterDB {
         } 
         else {
             // otherwise find a page with free room
-            unsigned int numPages = fileHandle.getNumberOfPages();
             // check last page bc most recently used
             RC code = fileHandle.readPage(numPages - 1, page);
                 if (code != 0) {
@@ -213,7 +213,7 @@ namespace PeterDB {
                 if (code != 0) {
                     return code;
                 }
-                currPage = fileHandle.getNumberOfPages() - 1;
+                currPage = numPages - 1;
             }
         }
         // we have offset and num slots, just write the data and then make the slots
