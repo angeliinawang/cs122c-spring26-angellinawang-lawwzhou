@@ -279,12 +279,9 @@ namespace PeterDB {
                     unsigned charLen;
                     memcpy(&charLen, fieldptr, LENGTH_PREFIX);
                     fieldptr += LENGTH_PREFIX;
-                    char buffer[charLen + 1];
                     for (int j = 0; j < charLen; j++) {
-                        buffer[j] = fieldptr[j];
+                        out << fieldptr[j];
                     }
-                    buffer[charLen] = '\0';
-                    out << buffer;
                     fieldptr += charLen;
                 }
                 if (i < recordDescriptor.size() - 1) {
