@@ -213,7 +213,7 @@ namespace PeterDB {
                 if (code != 0) {
                     return code;
                 }
-                currPage = numPages - 1;
+                currPage = numPages;
             }
         }
         // we have offset and num slots, just write the data and then make the slots
