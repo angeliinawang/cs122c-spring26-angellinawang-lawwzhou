@@ -119,7 +119,7 @@ namespace PeterDB {
 
         fseek(file, (long)((pageNum + 1) * PAGE_SIZE), SEEK_SET);
         fwrite(data, PAGE_SIZE, 1, file);
-        fflush(file);
+        // fflush(file); testing for optimization, criteria says make sure effect has been flushed but should be okay to only do in close file
         writePageCounter++;
         return 0;
     }
