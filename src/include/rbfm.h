@@ -23,6 +23,10 @@ that way to quickly see if we have enough space we compute the offset - number o
 #define RECORD_DIR_SIZE sizeof(unsigned short) //
 
 #define LENGTH_PREFIX 4 //
+
+#define TOMBSTONE_FLAG 0x01
+
+#define TOMBSTONE_LENGTH 9
 namespace PeterDB {
     // Record ID
     typedef struct {
@@ -90,6 +94,7 @@ namespace PeterDB {
         void dataToByteArray(const std::vector<Attribute> &recordDescriptor, const void *data, char *output, unsigned short &outputSize);
         unsigned short checkFreeSpace(void *page);
         void byteArrayToData(const std::vector<Attribute> &recordDescriptor, void *page, unsigned short slotNum, void *data);
+        void compactPage(char *page, unsigned short dataOffset, unsigned short dataLen, unsigned short &freeSpaceOffset, unsigned short pageSlots);
 
     public:
         

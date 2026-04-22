@@ -127,6 +127,29 @@ namespace PeterDB {
         return (unsigned short)free;    
     }
 
+    // compacts page and updates the metadata
+    void RecordBasedFileManager::compactPage(char *page, unsigned short start, unsigned short size, unsigned short &freeSpaceOffset, unsigned short pageSlots) {
+        memmove(page + start, page + start + size, freeSpaceOffset - (start + size));
+
+        // now we have to go through the slots and move them left dataLen
+        char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - SLOT_SIZE; // first slot
+        for (int i = 0; i < pageSlots; i++) {
+            unsigned short offset; 
+            memcpy(&offset, slotptr, 2);
+            if (offset != 0xFFFF && offset > start) {
+                unsigned short newOffset = offset - size;
+                memcpy(slotptr, &newOffset, 2);
+            }
+            slotptr -= SLOT_SIZE; 
+        }
+
+        // update free space on page
+        char* metaptr = (char *) page + PAGE_SIZE - PAGE_METADATA;
+        unsigned short newFreeSpaceOffset = freeSpaceOffset - size;
+        memcpy(metaptr, &newFreeSpaceOffset, 2);
+        freeSpaceOffset = newFreeSpaceOffset;
+    }
+
     RC RecordBasedFileManager::createFile(const std::string &fileName) {
         return PagedFileManager::instance().createFile(fileName);
     }
@@ -149,7 +172,8 @@ namespace PeterDB {
         char output[PAGE_SIZE];
         unsigned short outputSize;
         dataToByteArray(recordDescriptor, data, output, outputSize);
-        //fprintf(stderr, "outputSize=%d\n", outputSize);
+        // need atleast 9 bytes for a tombstone, so min allocation size is 9
+        unsigned short allocSize = std::max(outputSize, (unsigned short)9);
         PageNum currPage = 0;
         char page[PAGE_SIZE];
         unsigned short freeSpaceOffset = 0;
@@ -251,12 +275,11 @@ namespace PeterDB {
 
         // start at the very left of the metadata and then jump left numSlots * SLOT_SIZE
         memcpy(page + PAGE_SIZE - PAGE_METADATA - (numSlots+1) * SLOT_SIZE, &freeSpaceOffset, SLOT_SIZE - 2);
-        memcpy(page + PAGE_SIZE - PAGE_METADATA - (numSlots+1) * SLOT_SIZE + 2, &outputSize, SLOT_SIZE - 2);
+        memcpy(page + PAGE_SIZE - PAGE_METADATA - (numSlots+1) * SLOT_SIZE + 2, &allocSize, SLOT_SIZE - 2);
 
         //update da metadata
-        freeSpaceOffset += outputSize;
+        freeSpaceOffset += allocSize;
         numSlots += 1;
-        // fprintf(stderr, "numSlots=%d freeSpaceOffset=%d outputSize=%d\n", numSlots, freeSpaceOffset, outputSize);
         memcpy(page + PAGE_SIZE - PAGE_METADATA, &freeSpaceOffset, PAGE_METADATA - 2);
         memcpy(page + PAGE_SIZE - PAGE_METADATA + 2, &numSlots, PAGE_METADATA - 2);
 
@@ -266,7 +289,6 @@ namespace PeterDB {
         }
         rid.pageNum = currPage;
         rid.slotNum = numSlots - 1;
-        // fprintf(stderr, "INSERT: pageNum=%d slotNum=%d\n", rid.pageNum, rid.slotNum);
         return 0;
     }
 
@@ -281,13 +303,20 @@ namespace PeterDB {
         unsigned short dataOffset;
         memcpy(&dataOffset, slotptr, 2);
         if (dataOffset == 0xFFFF) return -1;
+        if (page[dataOffset] == TOMBSTONE_FLAG) {
+            RID newRid;
+            char * dataptr = (char*) page + dataOffset + 1;
+            memcpy(&newRid.pageNum, dataptr, 4);
+            dataptr += 4;
+            memcpy(&newRid.slotNum, dataptr, 4);
+            return readRecord(fileHandle, recordDescriptor, newRid, data);
+        }
         byteArrayToData(recordDescriptor, page, rid.slotNum, data);
         return 0;
     }
 
     RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
                                             const RID &rid) {
-        fprintf(stderr, "DELETE: pageNum=%u slotNum=%u\n", rid.pageNum, rid.slotNum);
         char page[PAGE_SIZE];
         if (rid.slotNum > 4096 || rid.slotNum < 0) {
             return -1;
@@ -320,32 +349,7 @@ namespace PeterDB {
         slotptr += SLOT_SIZE - 2;
         memcpy(&dataLen, slotptr, 2);
 
-        // get the offset and length of that data from the slot
-        // move all the data accordingly - grab everything from the offset of the data and the free space offset and move it
-        fprintf(stderr, "memmove dst=%p src=%p n=%d\n", 
-        page + dataOffset, 
-        page + dataOffset + dataLen, 
-        (int)(freeSpaceOffset - (dataOffset + dataLen)));
-        memmove(page + dataOffset, page + dataOffset + dataLen, freeSpaceOffset - (dataOffset + dataLen));
-
-        // now we have to go through the slots and move them left dataLen
-        slotptr = page + PAGE_SIZE - PAGE_METADATA - SLOT_SIZE; // first slot
-        for (int i = 0; i < pageSlots; i++) {
-            fprintf(stderr, "i=%d slotptr offset from page=%ld\n", i, slotptr - page);
-            unsigned short offset; 
-            memcpy(&offset, slotptr, 2);
-            if (offset != 0xFFFF && offset > dataOffset) {
-                unsigned short newOffset = offset - dataLen;
-                memcpy(slotptr, &newOffset, 2);
-            }
-            slotptr -= SLOT_SIZE; 
-        }
-        fprintf(stderr, "slot loop done\n");
-
-        // update free space on page
-        metaptr = page + PAGE_SIZE - PAGE_METADATA;
-        unsigned short newFreeSpaceOffset = freeSpaceOffset - dataLen;
-        memcpy(metaptr, &newFreeSpaceOffset, 2);
+        compactPage(page, dataOffset, dataLen, freeSpaceOffset, pageSlots);
 
         code = fileHandle.writePage(rid.pageNum, page);
         fprintf(stderr, "readPage code=%d\n", code);
@@ -409,7 +413,84 @@ namespace PeterDB {
 
     RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
                                             const void *data, const RID &rid) {
-        return -1;
+        // metadata and just getting the record we want
+        char page[PAGE_SIZE];
+        char output[PAGE_SIZE];
+        unsigned short outputSize;
+        if (rid.slotNum > 4096 || rid.slotNum < 0) {
+            return -1;
+        }
+        RC code = fileHandle.readPage(rid.pageNum, page);
+        if (code != 0) {
+            return code;
+        }
+        unsigned short pageSlots = 0;
+        unsigned short freeSpaceOffset = 0;
+        char *metaptr = (char*) page + PAGE_SIZE - PAGE_METADATA; // check to see if our slotNum we are trying to delete even exists
+        memcpy(&freeSpaceOffset, metaptr, 2);
+        metaptr += PAGE_METADATA - 2;
+        memcpy(&pageSlots, metaptr, 2);
+
+        if (rid.slotNum >= pageSlots) {
+            return -1;
+        }
+
+        char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (rid.slotNum + 1) * SLOT_SIZE;
+        unsigned short dataOffset = 0;
+        unsigned short dataLen = 0;
+        unsigned short deleted = 0xFFFF;
+        char tombstone = TOMBSTONE_FLAG;
+        memcpy(&dataOffset, slotptr, 2);
+
+        if (dataOffset == deleted) {
+            return -1;
+        }
+        slotptr += SLOT_SIZE - 2;
+        memcpy(&dataLen, slotptr, 2);
+
+        // get the data in byte array format with the size
+        dataToByteArray(recordDescriptor, data, output, outputSize);
+
+        // case 1: old record space bigger than new record, overwrite in place, compact, update offsets, update new length
+        if (dataLen >= outputSize) {
+            memcpy(page + dataOffset, output, outputSize);
+            unsigned short diff = dataLen - outputSize;
+            compactPage(page, dataOffset + outputSize, diff, freeSpaceOffset, pageSlots);
+            memcpy(slotptr, &outputSize, 2);
+        }
+        // case 2: old record space smaller than new record, but still room on page, call delete, then add onto the current page at freespace offset
+        else if (dataLen < outputSize && checkFreeSpace(page) > outputSize) {
+            compactPage(page, dataOffset, dataLen, freeSpaceOffset, pageSlots);
+            memcpy(page + freeSpaceOffset, output, outputSize);
+            // update same slot new info
+            memcpy(slotptr, &outputSize, 2);
+            slotptr -= 2;
+            memcpy(slotptr, &freeSpaceOffset, 2);
+            freeSpaceOffset += outputSize;
+            memcpy(page + PAGE_SIZE - PAGE_METADATA, &freeSpaceOffset, 2);
+        }
+        // case 3: old record space smaller than new record and no space on page, find available page, make tombstone to that page, need to set a 
+        // flag for tombstone, should be one byte for flag, four bytes for page number, four bytes for slot number, offset stays the same
+        else {
+            RID newRid;
+            char *dataptr = (char *) page + dataOffset;
+            unsigned short tombstoneLen = TOMBSTONE_LENGTH;
+            insertRecord(fileHandle, recordDescriptor, data, newRid);
+            memcpy(dataptr, &tombstone, 1);
+            dataptr += sizeof(tombstone);
+            memcpy(dataptr, &newRid.pageNum, sizeof(newRid.pageNum));
+            dataptr += sizeof(newRid.pageNum);
+            memcpy(dataptr, &newRid.slotNum, sizeof(newRid.slotNum));
+
+            // when the tombstone is smaller than old record we have to compact
+            unsigned short diff = dataLen - tombstoneLen;
+            if (diff > 0) {
+                compactPage(page, dataOffset + tombstoneLen, diff, freeSpaceOffset, pageSlots);
+            }
+            memcpy(slotptr, &tombstoneLen, 2);
+        }
+        fileHandle.writePage(rid.pageNum, page);
+        return 0;
     }
 
     RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
