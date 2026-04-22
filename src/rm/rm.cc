@@ -15,11 +15,58 @@ namespace PeterDB {
     RelationManager &RelationManager::operator=(const RelationManager &) = default;
 
     RC RelationManager::createCatalog() {
-        return -1;
+        // check whether catalog exists already, also create two files
+        auto &rbfm = RecordBasedFileManager::instance();
+        if (rbfm.createFile("Tables") != 0) return -1;
+        if (rbfm.createFile("Columns") != 0) {
+            rbfm.destroyFile("Tables"); // roll back
+            return -1;
+        }
+
+        // get schemas
+        auto tablesSchema = getTablesSchema();
+        auto columnsSchema = getColumnsSchema();
+
+        // open Tables file
+        FileHandle tableFH, colFH;
+        if (rbfm.openFile("Tables", tableFH) != 0) return -1;
+        if (rbfm.openFile("Columns", colFH) != 0) return -1;
+
+        RID rid;
+        char buf[PAGE_SIZE];
+
+        // insert row describing Tables table itself
+        serializeTablesRow(buf, 1, "Tables", "Tables");
+        rbfm.insertRecord(tableFH, tablesSchema, buf, rid);
+        // insert row describing Columns table itself
+        serializeTablesRow(buf, 2, "Columns", "Columns");
+        rbfm.insertRecord(tableFH, tablesSchema, buf, rid);
+
+        // insert rows describing every column of Tables table
+        for (int i = 0; i < tablesSchema.size(); i++) {
+            const auto &a = tablesSchema[i];
+            serializeColumnsRow(buf, 1, a.name, a.type, a.length, i+1);
+            rbfm.insertRecord(colFH, columnsSchema, buf, rid);
+        }
+        // insert rows describing every column of Columns table
+        for (int i = 0; i < columnsSchema.size(); i++) {
+            const auto &a = columnsSchema[i];
+            serializeColumnsRow(buf, 2, a.name, a.type, a.length, i+1);
+            rbfm.insertRecord(colFH, columnsSchema, buf, rid);
+        }
+        
+        rbfm.closeFile(tableFH);
+        rbfm.closeFile(colFH);
+        
+        return 0;
     }
 
     RC RelationManager::deleteCatalog() {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        
+        return (rbfm.destroyFile("Tables") != 0 || rbfm.destroyFile("Columns") != 0) ? -1 : 0;
+
+        // also delete user table files, complete after scan() implemented
     }
 
     RC RelationManager::createTable(const std::string &tableName, const std::vector<Attribute> &attrs) {
@@ -118,5 +165,66 @@ namespace PeterDB {
     RC RM_IndexScanIterator::close(){
         return -1;
     }
+
+    // private helpers, return attribute lists of Tables/Columns
+    std::vector<Attribute> RelationManager::getTablesSchema() {
+        return {
+            {"table-id", TypeInt, 4},
+            {"table-name", TypeVarChar, 50},
+            {"file-name", TypeVarChar, 50}
+        };
+    }
+
+    std::vector<Attribute> RelationManager::getColumnsSchema() {
+        return {
+            {"table-id", TypeInt, 4},
+            {"column-name", TypeVarChar, 50},
+            {"column-type", TypeInt, 4},
+            {"column-length", TypeInt, 4},
+            {"column-position", TypeInt, 4}
+        };
+    }
+
+    void RelationManager::serializeTablesRow(char* buf, int tableId, const std::string &tableName,
+                                const std::string &fileName) {
+        char *p = buf;
+        *p = 0; p += 1;
+
+        memcpy(p, &tableId, sizeof(int));
+        p += sizeof(int);
+
+        unsigned tableLen = tableName.size();
+        memcpy(p, &tableLen, sizeof(unsigned));
+        p += sizeof(unsigned);
+        memcpy(p, tableName.data(), tableLen);
+        p += tableLen;
+
+        unsigned fileLen = fileName.size();
+        memcpy(p, &fileLen, sizeof(unsigned));
+        p += sizeof(unsigned);
+        memcpy(p, fileName.data(), fileLen);
+    }
+
+    void RelationManager::serializeColumnsRow(char* buf, int tableId, const std::string &colName,
+                                int colType, int colLength, int colPosition) {
+        char *p = buf;
+        *p = 0; p += 1;
+
+        memcpy(p, &tableId, sizeof(int));
+        p += sizeof(int); // advance pointer each time
+
+        unsigned nameLen = colName.size();
+        memcpy(p, &nameLen, sizeof(unsigned));
+        p += sizeof(unsigned);
+        memcpy(p, colName.data(), nameLen);
+        p += nameLen;
+
+        memcpy(p, &colType, sizeof(int));
+        p += sizeof(int);
+        memcpy(p, &colLength, sizeof(int));
+        p += sizeof(int);
+        memcpy(p, &colPosition, sizeof(int));
+    }
+
 
 } // namespace PeterDB

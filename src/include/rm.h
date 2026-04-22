@@ -95,7 +95,14 @@ namespace PeterDB {
         ~RelationManager();                                                 // Prevent unwanted destruction
         RelationManager(const RelationManager &);                           // Prevent construction by copying
         RelationManager &operator=(const RelationManager &);                // Prevent assignment
-
+    
+    private:
+        std::vector<Attribute> getTablesSchema();
+        std::vector<Attribute> getColumnsSchema();
+        void serializeTablesRow(char* buf, int tableId, const std::string &tableName,
+                                const std::string &fileName);
+        void serializeColumnsRow(char* buf, int tableId, const std::string &colName,
+                                int colType, int colLength, int colPosition);
     };
 
 } // namespace PeterDB
