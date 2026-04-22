@@ -157,8 +157,6 @@ namespace PeterDB {
         bool found = false;
         unsigned int numPages = fileHandle.getNumberOfPages();
 
-        // TO-DO: add check last page otpimization
-
         if (numPages == 0) {
             // create first page
             memset(page, 0, PAGE_SIZE);
@@ -217,6 +215,37 @@ namespace PeterDB {
                 currPage = numPages;
             }
         }
+
+        // scan for free slots that were deleted before
+        short freeSlot = -1;
+        for (int i = 0; i < numSlots; i++) {
+            char *ptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (i + 1) * SLOT_SIZE;
+            unsigned short slotOffset;
+            memcpy(&slotOffset, ptr, 2);
+            if (slotOffset == 0xFFFF) {
+                freeSlot = i;
+                break;
+            }
+        }
+
+        if (freeSlot != -1) {
+            char *freeptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (freeSlot + 1) * SLOT_SIZE;
+            memcpy(freeptr, &freeSpaceOffset, SLOT_SIZE - 2);
+            memcpy(freeptr + 2, &outputSize, SLOT_SIZE - 2);
+
+            memcpy(page + freeSpaceOffset, output, outputSize);
+            freeSpaceOffset += outputSize; 
+
+            memcpy(page + PAGE_SIZE - PAGE_METADATA, &freeSpaceOffset, PAGE_METADATA - 2);
+            // numSlots stays the same
+            RC code = fileHandle.writePage(currPage, page);
+            if (code != 0) return code;
+            rid.pageNum = currPage;
+            rid.slotNum = freeSlot;
+            return 0;
+        }
+
+
         // we have offset and num slots, just write the data and then make the slots
         memcpy(page + freeSpaceOffset, output, outputSize);
 
@@ -248,13 +277,84 @@ namespace PeterDB {
         if (code != 0) {
             return code;
         }
+        char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (rid.slotNum + 1) * SLOT_SIZE;
+        unsigned short dataOffset;
+        memcpy(&dataOffset, slotptr, 2);
+        if (dataOffset == 0xFFFF) return -1;
         byteArrayToData(recordDescriptor, page, rid.slotNum, data);
         return 0;
     }
 
     RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
                                             const RID &rid) {
-        return -1;
+        fprintf(stderr, "DELETE: pageNum=%u slotNum=%u\n", rid.pageNum, rid.slotNum);
+        char page[PAGE_SIZE];
+        if (rid.slotNum > 4096 || rid.slotNum < 0) {
+            return -1;
+        }
+        RC code = fileHandle.readPage(rid.pageNum, page);
+        if (code != 0) {
+            return code;
+        }
+        unsigned short pageSlots = 0;
+        unsigned short freeSpaceOffset = 0;
+        char *metaptr = (char*) page + PAGE_SIZE - PAGE_METADATA; // check to see if our slotNum we are trying to delete even exists
+        memcpy(&freeSpaceOffset, metaptr, 2);
+        metaptr += PAGE_METADATA - 2;
+        memcpy(&pageSlots, metaptr, 2);
+
+        if (rid.slotNum >= pageSlots) {
+            return -1;
+        }
+
+        char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (rid.slotNum + 1) * SLOT_SIZE;
+        unsigned short dataOffset = 0;
+        unsigned short dataLen = 0;
+        unsigned short deleted = 0xFFFF;
+        memcpy(&dataOffset, slotptr, 2);
+
+        if (dataOffset == deleted) {
+            return -1;
+        }
+        memcpy(slotptr, &deleted, 2);
+        slotptr += SLOT_SIZE - 2;
+        memcpy(&dataLen, slotptr, 2);
+
+        // get the offset and length of that data from the slot
+        // move all the data accordingly - grab everything from the offset of the data and the free space offset and move it
+        fprintf(stderr, "memmove dst=%p src=%p n=%d\n", 
+        page + dataOffset, 
+        page + dataOffset + dataLen, 
+        (int)(freeSpaceOffset - (dataOffset + dataLen)));
+        memmove(page + dataOffset, page + dataOffset + dataLen, freeSpaceOffset - (dataOffset + dataLen));
+
+        // now we have to go through the slots and move them left dataLen
+        slotptr = page + PAGE_SIZE - PAGE_METADATA - SLOT_SIZE; // first slot
+        for (int i = 0; i < pageSlots; i++) {
+            fprintf(stderr, "i=%d slotptr offset from page=%ld\n", i, slotptr - page);
+            unsigned short offset; 
+            memcpy(&offset, slotptr, 2);
+            if (offset != 0xFFFF && offset > dataOffset) {
+                unsigned short newOffset = offset - dataLen;
+                memcpy(slotptr, &newOffset, 2);
+            }
+            slotptr -= SLOT_SIZE; 
+        }
+        fprintf(stderr, "slot loop done\n");
+
+        // update free space on page
+        metaptr = page + PAGE_SIZE - PAGE_METADATA;
+        unsigned short newFreeSpaceOffset = freeSpaceOffset - dataLen;
+        memcpy(metaptr, &newFreeSpaceOffset, 2);
+
+        code = fileHandle.writePage(rid.pageNum, page);
+        fprintf(stderr, "readPage code=%d\n", code);
+        fprintf(stderr, "page ptr=%p\n", (void*)page);
+
+        if (code != 0) {
+            return code;
+        }
+        return 0;
     }
 // Print the record that is passed to this utility method.
         // This method will be mainly used for debugging/testing.
