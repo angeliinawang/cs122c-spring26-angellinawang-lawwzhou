@@ -495,7 +495,68 @@ namespace PeterDB {
 
     RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
                                              const RID &rid, const std::string &attributeName, void *data) {
-        return -1;
+        char page[PAGE_SIZE];
+        RC code = fileHandle.readPage(rid.pageNum, page);
+        if (code != 0) {
+            return code;
+        }
+        char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (rid.slotNum + 1) * SLOT_SIZE;
+        unsigned short dataOffset;
+        memcpy(&dataOffset, slotptr, 2);
+        if (dataOffset == 0xFFFF) return -1;
+        if (page[dataOffset] == TOMBSTONE_FLAG) {
+            RID newRid;
+            char * dataptr = (char*) page + dataOffset + 1;
+            memcpy(&newRid.pageNum, dataptr, 4);
+            dataptr += 4;
+            memcpy(&newRid.slotNum, dataptr, 4);
+            return readAttribute(fileHandle, recordDescriptor, newRid, attributeName, data);
+        }
+        int fieldPos = -1;
+        for (int i = 0; i < recordDescriptor.size(); i++) {
+            if (recordDescriptor[i].name == attributeName) {
+                fieldPos = i;
+                break;
+            }
+        }
+        if (fieldPos == -1) {
+            return -1;
+        }
+        // jump to the directory with 2 times field pos
+        unsigned short prevOffset;
+        if (fieldPos == 0) {
+            prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+        } else {
+            int j = fieldPos - 1;
+            while (j >= 0) {
+                memcpy(&prevOffset, (char*)page + dataOffset + j * RECORD_DIR_SIZE, RECORD_DIR_SIZE);
+                if (prevOffset != 0xFFFF) {
+                    break;
+                }
+                j--;
+            }
+            if (j < 0) prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+        }
+        unsigned short currOffset;
+        char *dataptr = (char*) page + dataOffset + RECORD_DIR_SIZE*fieldPos;
+        memcpy(&currOffset, dataptr, RECORD_DIR_SIZE);
+        char * outptr = (char*) data;
+        if (currOffset == 0xFFFF) {
+            outptr[0] = 0x80;
+            return 0;
+        }
+        outptr[0] = 0;
+        outptr += 1;
+        if (recordDescriptor[fieldPos].type == TypeVarChar) {
+            unsigned int charLen = currOffset - prevOffset;
+            memcpy(outptr, &charLen, LENGTH_PREFIX);
+            outptr += LENGTH_PREFIX;
+            memcpy(outptr, page + dataOffset + prevOffset, charLen);
+        }
+        else {
+            memcpy(outptr, page + dataOffset + prevOffset, recordDescriptor[fieldPos].length);
+        }
+        return 0;
     }
 
     RC RecordBasedFileManager::scan(FileHandle &fileHandle, const std::vector<Attribute> &recordDescriptor,
