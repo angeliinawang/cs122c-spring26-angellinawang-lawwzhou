@@ -27,6 +27,8 @@ that way to quickly see if we have enough space we compute the offset - number o
 #define TOMBSTONE_FLAG 0x01
 
 #define TOMBSTONE_LENGTH 9
+
+#define RBFM_EOF (-1)  // end of a scan operator
 namespace PeterDB {
     // Record ID
     typedef struct {
@@ -83,9 +85,17 @@ namespace PeterDB {
         // Never keep the results in the memory. When getNextRecord() is called,
         // a satisfying record needs to be fetched from the file.
         // "data" follows the same format as RecordBasedFileManager::insertRecord().
-        RC getNextRecord(RID &rid, void *data) { return RBFM_EOF; };
-
-        RC close() { return -1; };
+        RC getNextRecord(RID &rid, void *data);
+        RC close();
+        
+        FileHandle fileHandle;
+        std::vector<Attribute> recordDescriptor;
+        std::string conditionAttribute;
+        CompOp compOp;
+        const void *value;
+        std::vector<std::string> attributeNames;
+        unsigned currentPage;
+        unsigned currentSlot;
     };
 
     class RecordBasedFileManager {

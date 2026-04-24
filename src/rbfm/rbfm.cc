@@ -563,7 +563,227 @@ namespace PeterDB {
                                     const std::string &conditionAttribute, const CompOp compOp, const void *value,
                                     const std::vector<std::string> &attributeNames,
                                     RBFM_ScanIterator &rbfm_ScanIterator) {
-        return -1;
+        rbfm_ScanIterator.fileHandle = fileHandle;
+        rbfm_ScanIterator.recordDescriptor = recordDescriptor;
+        rbfm_ScanIterator.conditionAttribute = conditionAttribute;
+        rbfm_ScanIterator.compOp = compOp;
+        rbfm_ScanIterator.value = value;
+        rbfm_ScanIterator.attributeNames = attributeNames;
+        rbfm_ScanIterator.currentPage = 0;
+        rbfm_ScanIterator.currentSlot = 0;
+        return 0;
+    }
+
+    bool compare(const void *fieldVal, const void *condVal, AttrType type, CompOp compOp) {
+        if (type == TypeInt) {
+            int a, b;
+            memcpy(&a, fieldVal, 4);
+            memcpy(&b, condVal, 4);
+            switch(compOp) {
+                case EQ_OP: return a == b;
+                case GT_OP: return a > b;
+                case LT_OP: return a < b;
+                case GE_OP: return a >= b;
+                case LE_OP: return a <= b;
+                case NE_OP: return a != b;
+                default: return false;
+            }
+        } else if (type == TypeReal) {
+            float a, b;
+            memcpy(&a, fieldVal, 4);
+            memcpy(&b, condVal, 4);
+            switch(compOp) {
+                case EQ_OP: return a == b;
+                case GT_OP: return a > b;
+                case LT_OP: return a < b;
+                case GE_OP: return a >= b;
+                case LE_OP: return a <= b;
+                case NE_OP: return a != b;
+                default: return false;
+            }
+        } else {
+            // TypeVarChar — fieldVal points directly at char bytes (no length prefix)
+            // condVal is in external format — 4 byte length prefix then chars
+            unsigned int fieldLen, condLen;
+            memcpy(&fieldLen, fieldVal, 4);
+            memcpy(&condLen, condVal, 4);
+            int cmp = strncmp((char*)fieldVal + 4, (char*)condVal + 4, std::min(fieldLen, condLen));
+            if (cmp == 0) cmp = fieldLen - condLen;  // if chars match up to min length, longer one is greater
+            switch(compOp) {
+                case EQ_OP: return cmp == 0;
+                case GT_OP: return cmp > 0;
+                case LT_OP: return cmp < 0;
+                case GE_OP: return cmp >= 0;
+                case LE_OP: return cmp <= 0;
+                case NE_OP: return cmp != 0;
+                default: return false;
+            }
+        }
+    }
+
+    RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
+        char page[PAGE_SIZE];
+        unsigned short deleted = 0xFFFF;
+        char tombstone = TOMBSTONE_FLAG;
+        int fields = attributeNames.size();
+        int nullBytes = ceil(fields / 8.0);
+        while (currentPage < fileHandle.getNumberOfPages()) {
+            RC code = fileHandle.readPage(currentPage, page);
+            if (code != 0) {
+                return code;
+            }
+            unsigned short pageSlots = 0;
+            unsigned short freeSpaceOffset = 0;
+            char *metaptr = (char*) page + PAGE_SIZE - PAGE_METADATA; 
+            memcpy(&freeSpaceOffset, metaptr, 2);
+            metaptr += PAGE_METADATA - 2;
+            memcpy(&pageSlots, metaptr, 2);
+
+            while (currentSlot < pageSlots) {
+                char *slotptr = (char*) page + PAGE_SIZE - PAGE_METADATA - (currentSlot + 1) * SLOT_SIZE;
+                unsigned short dataOffset = 0;
+                unsigned short dataLen = 0;
+
+                memcpy(&dataOffset, slotptr, 2);
+
+                if (dataOffset == deleted) {
+                    currentSlot++;
+                    continue;
+                }
+                if (page[dataOffset] == TOMBSTONE_FLAG) {
+                    currentSlot++;
+                    continue;
+                }
+                slotptr += SLOT_SIZE - 2;
+                memcpy(&dataLen, slotptr, 2);
+
+                bool pass = false;
+                int conditionIndex = -1;
+                // case 1: no op means we just return the next available record
+                if (compOp == NO_OP || conditionAttribute == "") {
+                    pass = true;
+                // else we start comparing to see if this record is good to project
+                } else {
+                    for (int i = 0; i < recordDescriptor.size(); i++) {
+                        if (recordDescriptor[i].name == conditionAttribute) {
+                            conditionIndex = i;
+                            break;
+                        }
+                    }
+                    if (conditionIndex == -1) {
+                        currentSlot++;
+                        continue;
+                    }
+                    unsigned short prevOffset;
+                    if (conditionIndex == 0) {
+                        prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+                    } else {
+                        int j = conditionIndex - 1;
+                        while (j >= 0) {
+                            memcpy(&prevOffset, (char*)page + dataOffset + j * RECORD_DIR_SIZE, RECORD_DIR_SIZE);
+                            if (prevOffset != 0xFFFF) {
+                                break;
+                            }
+                            j--;
+                        }
+                        if (j < 0) prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+                    }
+                    unsigned short currOffset;
+                    char *dataptr = (char*) page + dataOffset + RECORD_DIR_SIZE*conditionIndex;
+                    memcpy(&currOffset, dataptr, RECORD_DIR_SIZE);
+                    if (currOffset == 0xFFFF) {
+                        pass = false;
+                    }
+                    else {
+                        char *fieldptr = (char*)page + dataOffset + prevOffset;
+                        if (recordDescriptor[conditionIndex].type == TypeInt) {
+                            int fieldVal;
+                            int condVal;
+                            memcpy(&fieldVal, fieldptr, recordDescriptor[conditionIndex].length);
+                            memcpy(&condVal, value, sizeof(int));
+                            pass = compare(&fieldVal, &condVal, TypeInt, compOp);
+                        }
+                        else if (recordDescriptor[conditionIndex].type == TypeReal) {
+                            float fieldVal;
+                            float condVal;
+                            memcpy(&fieldVal, fieldptr, recordDescriptor[conditionIndex].length);
+                            memcpy(&condVal, value, sizeof(float));
+                            pass = compare(&fieldVal, &condVal, TypeReal, compOp);
+                        }
+                        else {
+                            unsigned int fieldLen = currOffset - prevOffset;
+                            char tempField[fieldLen + 4];
+                            memcpy(tempField, &fieldLen, 4);
+                            memcpy(tempField + 4, fieldptr, fieldLen);
+                            pass = compare(tempField, value, TypeVarChar, compOp);
+
+                        }
+                    }
+                }
+                // this record is good so we can project only the fields that we need
+                if (pass) {
+                    rid.pageNum = currentPage;
+                    rid.slotNum = currentSlot;
+                    char *bitptr = (char*) data;
+                    char *outptr = (char *) data + nullBytes;
+                    memset(bitptr, 0, nullBytes);
+                    for (int i = 0; i < attributeNames.size(); i++) {
+                        // projecting attribute need to find each of their positions then read
+                        for (int j = 0; j < recordDescriptor.size(); j++) {
+                            if (attributeNames[i] == recordDescriptor[j].name) {
+                                unsigned short prevOffset;
+                                if (j == 0) {
+                                    prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+                                } else {
+                                    int k = j - 1;
+                                    while (k >= 0) {
+                                        memcpy(&prevOffset, (char*)page + dataOffset + k * RECORD_DIR_SIZE, RECORD_DIR_SIZE);
+                                        if (prevOffset != 0xFFFF) {
+                                            break;
+                                        }
+                                        k--;
+                                    }
+                                    if (k < 0) prevOffset = recordDescriptor.size() * RECORD_DIR_SIZE;
+                                }
+                                unsigned short currOffset;
+                                char *dataptr = (char*) page + dataOffset + RECORD_DIR_SIZE*j;
+                                memcpy(&currOffset, dataptr, RECORD_DIR_SIZE);
+                                if (currOffset == 0xFFFF) {
+                                    bitptr[i / 8] |= (0x80 >> (i % 8));
+                                } else {
+                                    if (recordDescriptor[j].type == TypeVarChar) {
+                                        unsigned int charLen = currOffset - prevOffset;
+                                        memcpy(outptr, &charLen, LENGTH_PREFIX);
+                                        outptr += LENGTH_PREFIX;
+                                        memcpy(outptr, page + dataOffset + prevOffset, charLen);
+                                        outptr += charLen;
+                                    }
+                                    else {
+                                        memcpy(outptr, page + dataOffset + prevOffset, recordDescriptor[j].length);
+                                        outptr += recordDescriptor[j].length;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    currentSlot += 1;
+                    return 0;
+                }
+                currentSlot += 1;
+            }
+            // when we're done with a page
+            currentPage += 1;
+            currentSlot = 0;
+        }
+
+        return RBFM_EOF;
+    }
+
+    RC RBFM_ScanIterator::close() {
+        currentPage = 0;
+        currentSlot = 0;
+        return 0;
     }
 
 } // namespace PeterDB
