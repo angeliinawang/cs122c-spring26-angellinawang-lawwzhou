@@ -28,35 +28,35 @@ namespace PeterDB {
         auto columnsSchema = getColumnsSchema();
 
         // open Tables file
-        FileHandle tableFH, colFH;
-        if (rbfm.openFile("Tables", tableFH) != 0) return -1;
-        if (rbfm.openFile("Columns", colFH) != 0) return -1;
+        FileHandle tFH, cFH;
+        if (rbfm.openFile("Tables", tFH) != 0) return -1;
+        if (rbfm.openFile("Columns", cFH) != 0) return -1;
 
         RID rid;
         char buf[PAGE_SIZE];
 
         // insert row describing Tables table itself
         serializeTablesRow(buf, 1, "Tables", "Tables");
-        rbfm.insertRecord(tableFH, tablesSchema, buf, rid);
+        rbfm.insertRecord(tFH, tablesSchema, buf, rid);
         // insert row describing Columns table itself
         serializeTablesRow(buf, 2, "Columns", "Columns");
-        rbfm.insertRecord(tableFH, tablesSchema, buf, rid);
+        rbfm.insertRecord(tFH, tablesSchema, buf, rid);
 
         // insert rows describing every column of Tables table
         for (int i = 0; i < tablesSchema.size(); i++) {
             const auto &a = tablesSchema[i];
             serializeColumnsRow(buf, 1, a.name, a.type, a.length, i+1);
-            rbfm.insertRecord(colFH, columnsSchema, buf, rid);
+            rbfm.insertRecord(cFH, columnsSchema, buf, rid);
         }
         // insert rows describing every column of Columns table
         for (int i = 0; i < columnsSchema.size(); i++) {
             const auto &a = columnsSchema[i];
             serializeColumnsRow(buf, 2, a.name, a.type, a.length, i+1);
-            rbfm.insertRecord(colFH, columnsSchema, buf, rid);
+            rbfm.insertRecord(cFH, columnsSchema, buf, rid);
         }
         
-        rbfm.closeFile(tableFH);
-        rbfm.closeFile(colFH);
+        rbfm.closeFile(tFH);
+        rbfm.closeFile(cFH);
         
         return 0;
     }
@@ -64,17 +64,191 @@ namespace PeterDB {
     RC RelationManager::deleteCatalog() {
         auto &rbfm = RecordBasedFileManager::instance();
         
-        return (rbfm.destroyFile("Tables") != 0 || rbfm.destroyFile("Columns") != 0) ? -1 : 0;
+        FileHandle tFH;
+        if (rbfm.openFile("Tables", tFH) != 0) return -1;
 
-        // also delete user table files, complete after scan() implemented
+        auto tableSchema = getTablesSchema();
+
+        RBFM_ScanIterator it;
+        std::vector<std::string> projection = {"file-name"};
+        if (rbfm.scan(tFH, tableSchema, "", NO_OP, nullptr, projection, it) != 0) {
+            rbfm.closeFile(tFH);
+            return -1;
+        }
+
+        // scan returns row format
+        // [1 byte null bitmap][4 byte length][chars...]
+        std::vector<std::string> filesToDelete;
+        RID rid;
+        char row[PAGE_SIZE];
+
+        // delete eachh file
+        while (it.getNextRecord(rid, row) != RBFM_EOF) {
+            if (row[0] & 0x80) continue;
+            unsigned len;
+            memcpy(&len, row + 1, sizeof(unsigned));
+            filesToDelete.emplace_back(row + 1 + sizeof(unsigned), len);
+        }
+
+        it.close();
+        rbfm.closeFile(tFH);
+
+        for (const auto &f : filesToDelete) rbfm.destroyFile(f);
+
+        // in case catalog is incomplete
+        rbfm.destroyFile("Tables");
+        rbfm.destroyFile("Columns");
+        return 0;
     }
 
     RC RelationManager::createTable(const std::string &tableName, const std::vector<Attribute> &attrs) {
-        return -1;
+        if (tableName == "Tables" || tableName == "Columns") return -1;
+
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle tFH, cFH;
+
+        if (rbfm.openFile("Tables", tFH) != 0) return -1;
+        if (rbfm.openFile("Columns", cFH) != 0) {
+            rbfm.closeFile(tFH);
+            return -1;
+        }
+
+        auto tablesSchema = getTablesSchema();
+        auto columnsSchema = getColumnsSchema();
+
+        // single scan, compute next id and also check for duplicates
+        RBFM_ScanIterator it;
+        std::vector<std::string> proj = {"table-id", "table-name"};
+        if (rbfm.scan(tFH, tablesSchema, "", NO_OP, nullptr, proj, it) != 0) {
+            rbfm.closeFile(tFH);
+            rbfm.closeFile(cFH);
+            return -1;
+        }
+
+        int maxId = 0;
+        RID rid;
+        char row[PAGE_SIZE];
+
+        while(it.getNextRecord(rid, row) != RBFM_EOF) {
+            //[1 byt null bitmap][4 byte int table id][4 byte len][...chars]
+            char *p = row + 1; // skip null bitmap
+            int id;
+            memcpy(&id, p, sizeof(int));
+            p += sizeof(int);
+            unsigned nameLen;
+            memcpy(&nameLen, p, sizeof(unsigned));
+            p+= sizeof(unsigned);
+            std::string name(p, nameLen);
+
+            if (name == tableName) {
+                it.close();
+                rbfm.closeFile(tFH);
+                rbfm.closeFile(cFH);
+                return -1;
+            }
+
+            if (id < maxId) maxId = id;
+        }
+
+        it.close();
+        int nextId = maxId + 1;
+
+        // create new table's file
+        if (rbfm.createFile(tableName) != 0) {
+            rbfm.closeFile(tFH);
+            rbfm.closeFile(cFH);
+            return -1;
+        }
+
+        // one row into Tables
+        char buf[PAGE_SIZE];
+        serializeTablesRow(buf, nextId, tableName, tableName);
+        if (rbfm.insertRecord(tFH, tablesSchema, buf, rid) != 0) {
+            rbfm.destroyFile(tableName);
+            rbfm.closeFile(tFH);
+            rbfm.closeFile(cFH);
+            return -1;
+        }
+
+        // one row per attribute into Columns
+        for (int i = 0; i < (int)attrs.size(); i++) {
+            const auto &a = attrs[i];
+            serializeColumnsRow(buf, nextId, a.name, a.type, a.length, i + 1);
+
+            if (rbfm.insertRecord(cFH, columnsSchema, buf, rid) != 0) {
+                rbfm.destroyFile(tableName);
+                rbfm.closeFile(tFH);
+                rbfm.closeFile(cFH);
+                return -1;
+            }
+        }
+
+        rbfm.closeFile(tFH);
+        rbfm.closeFile(cFH);
+        return 0;
     }
 
     RC RelationManager::deleteTable(const std::string &tableName) {
-        return -1;
+        if (tableName == "Tables" || tableName == "Columns") return -1;
+
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle tFH, cFH;
+        if (rbfm.openFile("Tables",  tFH) != 0) return -1;
+        if (rbfm.openFile("Columns", cFH) != 0) { rbfm.closeFile(tFH); return -1; }
+
+        auto tablesSchema  = getTablesSchema();
+        auto columnsSchema = getColumnsSchema();
+
+        // find Tables row
+        // [4-byte length][chars]
+        char nameVal[PAGE_SIZE];
+        unsigned nameLen = tableName.size();
+        memcpy(nameVal, &nameLen, sizeof(unsigned));
+        memcpy(nameVal + sizeof(unsigned), tableName.data(), nameLen);
+
+        RBFM_ScanIterator tIt;
+        std::vector<std::string> projTables = {"table-id"};
+        if (rbfm.scan(tFH, tablesSchema, "table-name", EQ_OP, nameVal, projTables, tIt) != 0) {
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+
+        RID tablesRid;
+        int tableId = -1;
+        char row[PAGE_SIZE];
+        if (tIt.getNextRecord(tablesRid, row) == RBFM_EOF) {
+            tIt.close();
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+        // [1-byte null bitmap][4-byte int]
+        memcpy(&tableId, row + 1, sizeof(int));
+        tIt.close();
+
+        // collect all Columns RIDs matching this table-id
+        RBFM_ScanIterator cIt;
+        std::vector<std::string> projCols = {"table-id"};
+        if (rbfm.scan(cFH, columnsSchema, "table-id", EQ_OP, &tableId, projCols, cIt) != 0) {
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+        std::vector<RID> columnRids;
+        RID r;
+        while (cIt.getNextRecord(r, row) != RBFM_EOF) {
+            columnRids.push_back(r);
+        }
+        cIt.close();
+
+        rbfm.deleteRecord(tFH, tablesSchema, tablesRid);
+        for (const auto &cr : columnRids) {
+            rbfm.deleteRecord(cFH, columnsSchema, cr);
+        }
+
+        // destroy the user >:)
+        rbfm.closeFile(tFH);
+        rbfm.closeFile(cFH);
+        rbfm.destroyFile(tableName);
+        return 0;
     }
 
     RC RelationManager::getAttributes(const std::string &tableName, std::vector<Attribute> &attrs) {
