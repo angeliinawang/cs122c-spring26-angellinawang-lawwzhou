@@ -776,7 +776,6 @@ namespace PeterDB {
             currentPage += 1;
             currentSlot = 0;
         }
-
         return RBFM_EOF;
     }
 

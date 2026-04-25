@@ -147,7 +147,7 @@ namespace PeterDB {
                 return -1;
             }
 
-            if (id < maxId) maxId = id;
+            if (id > maxId) maxId = id;
         }
 
         it.close();
@@ -252,7 +252,74 @@ namespace PeterDB {
     }
 
     RC RelationManager::getAttributes(const std::string &tableName, std::vector<Attribute> &attrs) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle tFH, cFH;
+        if (rbfm.openFile("Tables",  tFH) != 0) return -1;
+        if (rbfm.openFile("Columns", cFH) != 0) { rbfm.closeFile(tFH); return -1; }
+
+        auto tablesSchema  = getTablesSchema();
+        auto columnsSchema = getColumnsSchema();
+        char nameVal[PAGE_SIZE];
+        unsigned nameLen = tableName.size();
+        memcpy(nameVal, &nameLen, sizeof(unsigned));
+        memcpy(nameVal + sizeof(unsigned), tableName.data(), nameLen);
+
+        // scan tables table to find the table we need the attributes for
+        RBFM_ScanIterator tIt;
+        std::vector<std::string> projTables = {"table-id", ""};
+        if (rbfm.scan(tFH, tablesSchema, "table-name", EQ_OP, nameVal, projTables, tIt) != 0) {
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+
+        RID tablesRid;
+        int tableId = -1;
+        char row[PAGE_SIZE];
+        if (tIt.getNextRecord(tablesRid, row) == RBFM_EOF) {
+            tIt.close();
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+        // [1-byte null bitmap][4-byte int]
+        memcpy(&tableId, row + 1, sizeof(int));
+        tIt.close();
+
+        // scan the table using table id to find the columns we need
+        RBFM_ScanIterator cIt;
+        std::vector<std::string> projCols = {"column-name", "column-type", "column-length", "column-position"};
+        if (rbfm.scan(cFH, columnsSchema, "table-id", EQ_OP, &tableId, projCols, cIt) != 0) {
+            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            return -1;
+        }
+        std::vector<std::pair<int, Attribute>> posColumns;
+        RID r;
+        while (cIt.getNextRecord(r, row) != RBFM_EOF) {
+            // get the record and then first column is always 
+            // skip one byte because we are projecting five fields so the bitmap is only 1 byte
+            char *p = row + 1;
+            unsigned short charLen;
+            memcpy(&charLen, p, sizeof(unsigned short));
+            p += 2;
+            std::string colName;
+            memcpy(&colName, p, charLen);
+            p += charLen;
+            int column_type;
+            int column_length;
+            int column_position;
+            memcpy(&column_type, p, 2);
+            p += 2;
+            memcpy(&column_length, p, 2);
+            p += 2;
+            memcpy(&column_position, p, 2);
+            p += 2;
+            posColumns.push_back({column_position, {colName, column_type, column_length}});
+            //unfinished but basically building the recordescriptor, need to sort by position after
+        }
+        cIt.close();
+
+
+
+        return 0;
     }
 
     RC RelationManager::insertTuple(const std::string &tableName, const void *data, RID &rid) {
