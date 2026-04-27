@@ -421,6 +421,7 @@ namespace PeterDB {
         std::vector<Attribute> attrs;
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, rm_ScanIterator.fileHandle) != 0) return -1;
+        rm_ScanIterator.isOpen = true;
         return rbfm.scan(rm_ScanIterator.fileHandle, attrs, conditionAttribute, compOp, value, attributeNames, rm_ScanIterator.rbfmScanner);
     }
 
@@ -434,7 +435,10 @@ namespace PeterDB {
 
     RC RM_ScanIterator::close() { 
         auto &rbfm = RecordBasedFileManager::instance();
-        rbfm.closeFile(fileHandle);
+        if (isOpen) {
+            rbfm.closeFile(fileHandle);
+            isOpen = false;
+        }
         return rbfmScanner.close();
 
     }
