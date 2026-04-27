@@ -417,6 +417,7 @@ namespace PeterDB {
                              const void *value,
                              const std::vector<std::string> &attributeNames,
                              RM_ScanIterator &rm_ScanIterator) {
+        rm_ScanIterator.close();
         auto &rbfm = RecordBasedFileManager::instance();
         std::vector<Attribute> attrs;
         if (getAttributes(tableName, attrs) != 0) return -1;
@@ -434,7 +435,6 @@ namespace PeterDB {
     }
 
     RC RM_ScanIterator::close() { 
-        rm_ScanIterator.close();
         auto &rbfm = RecordBasedFileManager::instance();
         if (isOpen) {
             rbfm.closeFile(fileHandle);
