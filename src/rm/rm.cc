@@ -434,6 +434,7 @@ namespace PeterDB {
     }
 
     RC RM_ScanIterator::close() { 
+        rm_ScanIterator.close();
         auto &rbfm = RecordBasedFileManager::instance();
         if (isOpen) {
             rbfm.closeFile(fileHandle);
