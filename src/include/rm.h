@@ -21,6 +21,7 @@ namespace PeterDB {
 
         RC close();
 
+        FileHandle fileHandle;
         RBFM_ScanIterator rbfmScanner;
     };
 

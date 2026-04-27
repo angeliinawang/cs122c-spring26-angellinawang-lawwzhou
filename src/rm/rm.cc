@@ -382,12 +382,25 @@ namespace PeterDB {
     }
 
     RC RelationManager::printTuple(const std::vector<Attribute> &attrs, const void *data, std::ostream &out) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        rbfm.printRecord(attrs, data, out);
+        return 0;
     }
 
     RC RelationManager::readAttribute(const std::string &tableName, const RID &rid, const std::string &attributeName,
                                       void *data) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
+        if (rbfm.readAttribute(fileHandle, attrs, rid, attributeName, data) != 0) {
+            rbfm.closeFile(fileHandle);
+            return -1;
+        }
+        rbfm.closeFile(fileHandle);
+        return 0;
     }
 
     RC RelationManager::scan(const std::string &tableName,
@@ -396,18 +409,26 @@ namespace PeterDB {
                              const void *value,
                              const std::vector<std::string> &attributeNames,
                              RM_ScanIterator &rm_ScanIterator) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, rm_ScanIterator.fileHandle) != 0) return -1;
+        return rbfm.scan(rm_ScanIterator.fileHandle, attrs, conditionAttribute, compOp, value, attributeNames, rm_ScanIterator.rbfmScanner);
     }
 
     RM_ScanIterator::RM_ScanIterator() = default;
 
     RM_ScanIterator::~RM_ScanIterator() = default;
 
-    RC RM_ScanIterator::getNextTuple(RID &rid, void *data) { return RM_EOF; }
+    RC RM_ScanIterator::getNextTuple(RID &rid, void *data) { 
+        return rbfmScanner.getNextRecord(rid, data);
+    }
 
     RC RM_ScanIterator::close() { 
+        auto &rbfm = RecordBasedFileManager::instance();
+        rbfm.closeFile(fileHandle);
         return rbfmScanner.close();
-        return 0;
+
     }
 
     // Extra credit work
