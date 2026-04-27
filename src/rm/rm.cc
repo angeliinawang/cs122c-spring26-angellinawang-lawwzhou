@@ -1,4 +1,9 @@
 #include "src/include/rm.h"
+#include <string>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
+#include <vector>
 
 namespace PeterDB {
     RelationManager &RelationManager::instance() {
@@ -326,6 +331,7 @@ namespace PeterDB {
     }
 
     RC RelationManager::insertTuple(const std::string &tableName, const void *data, RID &rid) {
+        if (tableName == "Tables" || tableName == "Columns") return -1;
         auto &rbfm = RecordBasedFileManager::instance();
         FileHandle fileHandle;
         std::vector<Attribute> attrs;
@@ -340,6 +346,7 @@ namespace PeterDB {
     }
 
     RC RelationManager::deleteTuple(const std::string &tableName, const RID &rid) {
+        if (tableName == "Tables" || tableName == "Columns") return -1;
         auto &rbfm = RecordBasedFileManager::instance();
         FileHandle fileHandle;
         std::vector<Attribute> attrs;
@@ -354,6 +361,7 @@ namespace PeterDB {
     }
 
     RC RelationManager::updateTuple(const std::string &tableName, const void *data, const RID &rid) {
+        if (tableName == "Tables" || tableName == "Columns") return -1;
         auto &rbfm = RecordBasedFileManager::instance();
         FileHandle fileHandle;
         std::vector<Attribute> attrs;

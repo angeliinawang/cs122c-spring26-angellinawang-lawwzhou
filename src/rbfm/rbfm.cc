@@ -345,6 +345,20 @@ namespace PeterDB {
         if (dataOffset == deleted) {
             return -1;
         }
+
+        if (page[dataOffset] == TOMBSTONE_FLAG) {
+            RID newRid;
+            memcpy(&newRid.pageNum, page + dataOffset + 1, 4);
+            memcpy(&newRid.slotNum, page + dataOffset + 5, 4);
+            // mark original tombstone slot as deleted and compact
+            memcpy(slotptr, &deleted, 2);
+            slotptr += SLOT_SIZE - 2;
+            memcpy(&dataLen, slotptr, 2);
+            compactPage(page, dataOffset, dataLen, freeSpaceOffset, pageSlots);
+            fileHandle.writePage(rid.pageNum, page);
+            // now delete the real record recursively
+            return deleteRecord(fileHandle, recordDescriptor, newRid);
+        }
         memcpy(slotptr, &deleted, 2);
         slotptr += SLOT_SIZE - 2;
         memcpy(&dataLen, slotptr, 2);
