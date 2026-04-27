@@ -266,7 +266,7 @@ namespace PeterDB {
 
         // scan tables table to find the table we need the attributes for
         RBFM_ScanIterator tIt;
-        std::vector<std::string> projTables = {"table-id", ""};
+        std::vector<std::string> projTables = {"table-id"};
         if (rbfm.scan(tFH, tablesSchema, "table-name", EQ_OP, nameVal, projTables, tIt) != 0) {
             rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
@@ -297,45 +297,88 @@ namespace PeterDB {
             // get the record and then first column is always 
             // skip one byte because we are projecting five fields so the bitmap is only 1 byte
             char *p = row + 1;
-            unsigned short charLen;
-            memcpy(&charLen, p, sizeof(unsigned short));
-            p += 2;
-            std::string colName;
-            memcpy(&colName, p, charLen);
+            unsigned charLen;
+            memcpy(&charLen, p, sizeof(unsigned));
+            p += sizeof(unsigned);
+            std::string colName(p, charLen);
             p += charLen;
             int column_type;
             int column_length;
             int column_position;
-            memcpy(&column_type, p, 2);
-            p += 2;
-            memcpy(&column_length, p, 2);
-            p += 2;
-            memcpy(&column_position, p, 2);
-            p += 2;
-            posColumns.push_back({column_position, {colName, column_type, column_length}});
+            memcpy(&column_type, p, 4);
+            p += 4;
+            memcpy(&column_length, p, 4);
+            p += 4;
+            memcpy(&column_position, p, 4);
+            p += 4;
+            posColumns.push_back(std::make_pair(column_position, Attribute{colName, (AttrType)column_type, (AttrLength)column_length}));
             //unfinished but basically building the recordescriptor, need to sort by position after
         }
+        std::sort(posColumns.begin(), posColumns.end(), [](const std::pair<int, Attribute> &a, const std::pair<int, Attribute> &b) {
+            return a.first < b.first;
+        });
+
+        for (int i = 0; i < posColumns.size(); i++) {
+            attrs.push_back(posColumns[i].second);
+        }
         cIt.close();
-
-
-
         return 0;
     }
 
     RC RelationManager::insertTuple(const std::string &tableName, const void *data, RID &rid) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
+        if (rbfm.insertRecord(fileHandle, attrs, data, rid) != 0) {
+            rbfm.closeFile(fileHandle);
+            return -1;
+        }
+        rbfm.closeFile(fileHandle);
+        return 0;
     }
 
     RC RelationManager::deleteTuple(const std::string &tableName, const RID &rid) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
+        if (rbfm.deleteRecord(fileHandle, attrs, rid) != 0) {
+            rbfm.closeFile(fileHandle);
+            return -1;
+        }
+        rbfm.closeFile(fileHandle);
+        return 0;
     }
 
     RC RelationManager::updateTuple(const std::string &tableName, const void *data, const RID &rid) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
+        if (rbfm.updateRecord(fileHandle, attrs, data, rid) != 0) {
+            rbfm.closeFile(fileHandle);
+            return -1;
+        }
+        rbfm.closeFile(fileHandle);
+        return 0;
     }
 
     RC RelationManager::readTuple(const std::string &tableName, const RID &rid, void *data) {
-        return -1;
+        auto &rbfm = RecordBasedFileManager::instance();
+        FileHandle fileHandle;
+        std::vector<Attribute> attrs;
+        if (getAttributes(tableName, attrs) != 0) return -1;
+        if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
+        if (rbfm.readRecord(fileHandle, attrs, rid, data) != 0) {
+            rbfm.closeFile(fileHandle);
+            return -1;
+        }
+        rbfm.closeFile(fileHandle);
+        return 0;
     }
 
     RC RelationManager::printTuple(const std::vector<Attribute> &attrs, const void *data, std::ostream &out) {
@@ -362,7 +405,10 @@ namespace PeterDB {
 
     RC RM_ScanIterator::getNextTuple(RID &rid, void *data) { return RM_EOF; }
 
-    RC RM_ScanIterator::close() { return -1; }
+    RC RM_ScanIterator::close() { 
+        return rbfmScanner.close();
+        return 0;
+    }
 
     // Extra credit work
     RC RelationManager::dropAttribute(const std::string &tableName, const std::string &attributeName) {

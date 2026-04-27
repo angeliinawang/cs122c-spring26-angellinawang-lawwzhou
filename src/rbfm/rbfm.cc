@@ -352,8 +352,8 @@ namespace PeterDB {
         compactPage(page, dataOffset, dataLen, freeSpaceOffset, pageSlots);
 
         code = fileHandle.writePage(rid.pageNum, page);
-        fprintf(stderr, "readPage code=%d\n", code);
-        fprintf(stderr, "page ptr=%p\n", (void*)page);
+        // fprintf(stderr, "readPage code=%d\n", code);
+        // fprintf(stderr, "page ptr=%p\n", (void*)page);
 
         if (code != 0) {
             return code;
