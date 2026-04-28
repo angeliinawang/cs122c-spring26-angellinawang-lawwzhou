@@ -282,7 +282,8 @@ namespace PeterDB {
         char row[PAGE_SIZE];
         if (tIt.getNextRecord(tablesRid, row) == RBFM_EOF) {
             tIt.close();
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
+            rbfm.closeFile(tFH);
+            rbfm.closeFile(cFH);
             return -1;
         }
         // [1-byte null bitmap][4-byte int]
@@ -338,10 +339,8 @@ namespace PeterDB {
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
         if (rbfm.insertRecord(fileHandle, attrs, data, rid) != 0) {
-            rbfm.closeFile(fileHandle);
             return -1;
         }
-        rbfm.closeFile(fileHandle);
         return 0;
     }
 
@@ -353,10 +352,8 @@ namespace PeterDB {
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
         if (rbfm.deleteRecord(fileHandle, attrs, rid) != 0) {
-            rbfm.closeFile(fileHandle);
             return -1;
         }
-        rbfm.closeFile(fileHandle);
         return 0;
     }
 
@@ -368,10 +365,8 @@ namespace PeterDB {
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
         if (rbfm.updateRecord(fileHandle, attrs, data, rid) != 0) {
-            rbfm.closeFile(fileHandle);
             return -1;
         }
-        rbfm.closeFile(fileHandle);
         return 0;
     }
 
@@ -382,10 +377,8 @@ namespace PeterDB {
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
         if (rbfm.readRecord(fileHandle, attrs, rid, data) != 0) {
-            rbfm.closeFile(fileHandle);
             return -1;
         }
-        rbfm.closeFile(fileHandle);
         return 0;
     }
 
@@ -404,7 +397,6 @@ namespace PeterDB {
         if (getAttributes(tableName, attrs) != 0) return -1;
         if (rbfm.openFile(tableName, fileHandle) != 0) return -1;
         if (rbfm.readAttribute(fileHandle, attrs, rid, attributeName, data) != 0) {
-            rbfm.closeFile(fileHandle);
             return -1;
         }
         rbfm.closeFile(fileHandle);
