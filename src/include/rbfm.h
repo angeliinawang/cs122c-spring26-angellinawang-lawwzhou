@@ -88,7 +88,7 @@ namespace PeterDB {
         RC getNextRecord(RID &rid, void *data);
         RC close();
         
-        FileHandle fileHandle;
+        FileHandle *fileHandle = nullptr;
         std::vector<Attribute> recordDescriptor;
         std::string conditionAttribute;
         CompOp compOp;

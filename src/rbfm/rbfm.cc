@@ -577,7 +577,7 @@ namespace PeterDB {
                                     const std::string &conditionAttribute, const CompOp compOp, const void *value,
                                     const std::vector<std::string> &attributeNames,
                                     RBFM_ScanIterator &rbfm_ScanIterator) {
-        rbfm_ScanIterator.fileHandle = fileHandle;
+        rbfm_ScanIterator.fileHandle = &fileHandle;
         rbfm_ScanIterator.recordDescriptor = recordDescriptor;
         rbfm_ScanIterator.conditionAttribute = conditionAttribute;
         rbfm_ScanIterator.compOp = compOp;
@@ -641,8 +641,8 @@ namespace PeterDB {
         char tombstone = TOMBSTONE_FLAG;
         int fields = attributeNames.size();
         int nullBytes = ceil(fields / 8.0);
-        while (currentPage < fileHandle.getNumberOfPages()) {
-            RC code = fileHandle.readPage(currentPage, page);
+        while (currentPage < fileHandle->getNumberOfPages()) {
+            RC code = fileHandle->readPage(currentPage, page);
             if (code != 0) {
                 return code;
             }
