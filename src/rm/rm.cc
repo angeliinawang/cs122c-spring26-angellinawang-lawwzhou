@@ -60,9 +60,6 @@ namespace PeterDB {
             rbfm.insertRecord(cFH, columnsSchema, buf, rid);
         }
         
-        rbfm.closeFile(tFH);
-        rbfm.closeFile(cFH);
-        
         return 0;
     }
 
@@ -77,7 +74,6 @@ namespace PeterDB {
         RBFM_ScanIterator it;
         std::vector<std::string> projection = {"file-name"};
         if (rbfm.scan(tFH, tableSchema, "", NO_OP, nullptr, projection, it) != 0) {
-            rbfm.closeFile(tFH);
             return -1;
         }
 
@@ -96,7 +92,6 @@ namespace PeterDB {
         }
 
         it.close();
-        rbfm.closeFile(tFH);
 
         for (const auto &f : filesToDelete) rbfm.destroyFile(f);
 
@@ -114,7 +109,6 @@ namespace PeterDB {
 
         if (rbfm.openFile("Tables", tFH) != 0) return -1;
         if (rbfm.openFile("Columns", cFH) != 0) {
-            rbfm.closeFile(tFH);
             return -1;
         }
 
@@ -125,8 +119,6 @@ namespace PeterDB {
         RBFM_ScanIterator it;
         std::vector<std::string> proj = {"table-id", "table-name"};
         if (rbfm.scan(tFH, tablesSchema, "", NO_OP, nullptr, proj, it) != 0) {
-            rbfm.closeFile(tFH);
-            rbfm.closeFile(cFH);
             return -1;
         }
 
@@ -147,8 +139,6 @@ namespace PeterDB {
 
             if (name == tableName) {
                 it.close();
-                rbfm.closeFile(tFH);
-                rbfm.closeFile(cFH);
                 return -1;
             }
 
@@ -160,8 +150,6 @@ namespace PeterDB {
 
         // create new table's file
         if (rbfm.createFile(tableName) != 0) {
-            rbfm.closeFile(tFH);
-            rbfm.closeFile(cFH);
             return -1;
         }
 
@@ -170,8 +158,6 @@ namespace PeterDB {
         serializeTablesRow(buf, nextId, tableName, tableName);
         if (rbfm.insertRecord(tFH, tablesSchema, buf, rid) != 0) {
             rbfm.destroyFile(tableName);
-            rbfm.closeFile(tFH);
-            rbfm.closeFile(cFH);
             return -1;
         }
 
@@ -182,14 +168,10 @@ namespace PeterDB {
 
             if (rbfm.insertRecord(cFH, columnsSchema, buf, rid) != 0) {
                 rbfm.destroyFile(tableName);
-                rbfm.closeFile(tFH);
-                rbfm.closeFile(cFH);
                 return -1;
             }
         }
 
-        rbfm.closeFile(tFH);
-        rbfm.closeFile(cFH);
         return 0;
     }
 
@@ -199,7 +181,7 @@ namespace PeterDB {
         auto &rbfm = RecordBasedFileManager::instance();
         FileHandle tFH, cFH;
         if (rbfm.openFile("Tables",  tFH) != 0) return -1;
-        if (rbfm.openFile("Columns", cFH) != 0) { rbfm.closeFile(tFH); return -1; }
+        if (rbfm.openFile("Columns", cFH) != 0) { return -1; }
 
         auto tablesSchema  = getTablesSchema();
         auto columnsSchema = getColumnsSchema();
@@ -214,7 +196,6 @@ namespace PeterDB {
         RBFM_ScanIterator tIt;
         std::vector<std::string> projTables = {"table-id"};
         if (rbfm.scan(tFH, tablesSchema, "table-name", EQ_OP, nameVal, projTables, tIt) != 0) {
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
         }
 
@@ -223,7 +204,6 @@ namespace PeterDB {
         char row[PAGE_SIZE];
         if (tIt.getNextRecord(tablesRid, row) == RBFM_EOF) {
             tIt.close();
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
         }
         // [1-byte null bitmap][4-byte int]
@@ -234,7 +214,6 @@ namespace PeterDB {
         RBFM_ScanIterator cIt;
         std::vector<std::string> projCols = {"table-id"};
         if (rbfm.scan(cFH, columnsSchema, "table-id", EQ_OP, &tableId, projCols, cIt) != 0) {
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
         }
         std::vector<RID> columnRids;
@@ -250,8 +229,6 @@ namespace PeterDB {
         }
 
         // destroy the user >:)
-        rbfm.closeFile(tFH);
-        rbfm.closeFile(cFH);
         rbfm.destroyFile(tableName);
         return 0;
     }
@@ -260,7 +237,7 @@ namespace PeterDB {
         auto &rbfm = RecordBasedFileManager::instance();
         FileHandle tFH, cFH;
         if (rbfm.openFile("Tables",  tFH) != 0) return -1;
-        if (rbfm.openFile("Columns", cFH) != 0) { rbfm.closeFile(tFH); return -1; }
+        if (rbfm.openFile("Columns", cFH) != 0) { return -1; }
 
         auto tablesSchema  = getTablesSchema();
         auto columnsSchema = getColumnsSchema();
@@ -273,7 +250,6 @@ namespace PeterDB {
         RBFM_ScanIterator tIt;
         std::vector<std::string> projTables = {"table-id"};
         if (rbfm.scan(tFH, tablesSchema, "table-name", EQ_OP, nameVal, projTables, tIt) != 0) {
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
         }
 
@@ -282,8 +258,6 @@ namespace PeterDB {
         char row[PAGE_SIZE];
         if (tIt.getNextRecord(tablesRid, row) == RBFM_EOF) {
             tIt.close();
-            rbfm.closeFile(tFH);
-            rbfm.closeFile(cFH);
             return -1;
         }
         // [1-byte null bitmap][4-byte int]
@@ -294,7 +268,6 @@ namespace PeterDB {
         RBFM_ScanIterator cIt;
         std::vector<std::string> projCols = {"column-name", "column-type", "column-length", "column-position"};
         if (rbfm.scan(cFH, columnsSchema, "table-id", EQ_OP, &tableId, projCols, cIt) != 0) {
-            rbfm.closeFile(tFH); rbfm.closeFile(cFH);
             return -1;
         }
         std::vector<std::pair<int, Attribute>> posColumns;
@@ -399,7 +372,6 @@ namespace PeterDB {
         if (rbfm.readAttribute(fileHandle, attrs, rid, attributeName, data) != 0) {
             return -1;
         }
-        rbfm.closeFile(fileHandle);
         return 0;
     }
 
