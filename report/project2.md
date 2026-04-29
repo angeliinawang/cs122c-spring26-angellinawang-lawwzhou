@@ -123,6 +123,17 @@ If a slot points at a record whose first byte is `TOMBSTONE_FLAG`, the iterator 
 ### 7. Implementation Detail
 - Other implementation details goes here.
 
+**Catalog write-protection:** `createTable`, `deleteTable`, `insertTuple`, `deleteTuple` and `updateTuple` automatically reject the names "Tables" and "Columns" up front. The RM still uses the catalog internally through reads (`getAttributes` and `scan`), so the rule is that no user can write to the catalog.
+
+**Rollback in `createCatalog`::** We create `Tables` first and then `Columns`. Thus, if the `Columns` fails to be created, we will destroy the `Tables` file before turning -1 so that it does not leave a half-built, incomplete catalog on the disk.
+
+**`deleteCatalog` will discover user files by scanning:** Since user files are not tracked anywhere outside the catalog itself, `deleteCatalog` scans `Tables` and projects `file-name` to gather every file the user created. It then destroys each one and subsequently `Tables` and `Columns`. The two last destroys help when the catalog is partially built.
+
+**`deleteTable` also cleans up `Columns`:** `Tables` is scanned by name to find the row and its `table-id`, then `Columns` is scanned for every row with that id. We collect `Columns` RIDs into a vector before deleting any of them, since deleting from a file while scanning can lead to invalidating the iterator. After both deletes, we destroy the actual user file.
+
+**`getAttributes` uses two scans:** The first scan goes through `Tables` and filters it by name to recover each `table-id`. The second scan goes through `Columns`, applying the `table-id` filter, collecting (column-positionm Attribute) pairs. We then sort by `column-position` at the end before returning the schema.
+
+
 ### 8. Member contribution (for team of two)
 - Explain how you distribute the workload in team.
 
